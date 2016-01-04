@@ -3,7 +3,7 @@
 # Description: Monitors a directory for video files to convert using convert-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
-# Version: 221115
+# Version: 050116
 
 if [ -f ".dev-debug" ]; then
 	exec 5>dev-debug.log
