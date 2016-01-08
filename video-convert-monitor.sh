@@ -3,7 +3,7 @@
 # Description: Monitors a directory for video files to convert using convert-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
-# Version: 050116
+# Version: 080116
 
 if [ -f ".dev-debug" ]; then
 	exec 5>dev-debug.log
@@ -52,22 +52,16 @@ date +%s > "${lockfile}"
 trap ctrl_c INT
 
 function ctrl_c() {
-		 echo "Removed ${lockfile}"
-		rm -f "${rootdir}/${lockfile}"
+	echo "Removed ${lockfile}"
+	rm -f "${rootdir}/${lockfile}"
 }
 
 # Main Script
 
-inputdir="/home/user/nas-Downloads/convert-video/input"
-outputdir="/home/user/nas-Downloads/convert-video/output"
-
-
-echo "Removing empty directorys."
-find "${inputdir}" -type d -empty -exec rmdir {} \;
+inputdir="/home/user/input"
+outputdir="/home/user/output"
 
 cd "${inputdir}"
-
-
 
 find "${inputdir}" -type f | while read video; do
 	find "${video}" -type f -printf '%f\n'
@@ -157,5 +151,5 @@ done
 
 if [ -f "${rootdir}/${lockfile}" ]; then
 	rm -f "${rootdir}/${lockfile}"
-fi	
+fi
 exit

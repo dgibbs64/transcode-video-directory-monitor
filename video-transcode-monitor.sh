@@ -3,7 +3,7 @@
 # Description: Monitors a directory for video files to transcode using transcode-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
-# Version: 050116
+# Version: 080116
 
 if [ -f ".dev-debug" ]; then
 	exec 5>dev-debug.log
@@ -43,7 +43,6 @@ fn_printdots(){
 # Checks for lock file
 lockfile="${scriptname}.lock"
 if [ -f "${lockfile}" ]; then
-	fn_printinfonl "Lock file found: ${scriptname} already running!"
 	exit
 fi
 
@@ -53,8 +52,8 @@ date +%s > "${lockfile}"
 trap ctrl_c INT
 
 function ctrl_c() {
-        echo "Removed ${lockfile}"
-        rm -f "${rootdir}/${lockfile}"
+	echo "Removed ${lockfile}"
+	rm -f "${rootdir}/${lockfile}"
 }
 
 # Main Script
@@ -64,10 +63,8 @@ outputdir="/home/user/output"
 
 cd "${inputdir}"
 
-#find "${inputdir}" -type d -depth -empty -delete
-
-find . -type f | while read video; do
-	
+find "${inputdir}" -type f | while read video; do
+	find "${video}" -type f -printf '%f\n'
 	fn_printinfonl "Found ${video} in ${inputdir}"
 	sleep 1
 	last="0"
@@ -100,51 +97,52 @@ find . -type f | while read video; do
 		/usr/local/bin/transcode-video --mp4 --add-audio language=eng "${inputdir}/${video}"
 		if [ "${?}" != "0" ]; then
 			fn_printfailnl "Unable to transcode: transcode-video.sh failed to transcode video"
+			sleep 1
 			mkdir -p "${outputdir}/fail" > /dev/null 2>&1
 			cd "${inputdir}"
 			rsync -avz --progress --stats "${video}" "${outputdir}/fail"
 			if [ "${?}" == "0" ]; then
 				rm -f "${video}"
 				rm -f "${rootdir}/${lockfile}"
+				fn_printoknl "Unable to convert: $(date '+%b %d %H:%M:%S') moving original to fail dir."
 				exit
 			else
 				fn_printfailnl "Copying failed!"
 				rm -f "${rootdir}/${lockfile}"
+				fn_printfailnl "Unable to convert: $(date '+%b %d %H:%M:%S') moving original to fail dir."
 				exit 1
 			fi	
 		else
 			fn_printoknl "Conversion complete."
 			sleep 1
-			fn_printdots "Conversion complete: moving original."
 			mkdir -p "${outputdir}/original" > /dev/null 2>&1
 			cd "${inputdir}"
 			rsync -avz --progress --stats "${video}" "${outputdir}/original/"
 			if [ "${?}" == "0" ]; then
-				fn_printoknl "Conversion complete: moving original."
 				rm -f "${video}"
 				rm -f "${rootdir}/${lockfile}"
+				fn_printoknl "Conversion complete: $(date '+%b %d %H:%M:%S') moving original to original dir."
 				exit
 			else
-				fn_printfailnl "Conversion complete: moving original."
 				rm -f "${rootdir}/${lockfile}"
+				fn_printfailnl "Conversion complete: $(date '+%b %d %H:%M:%S') moving original to original dir."
 				exit 1
 			fi				
 		fi
 	else
 		fn_printfailnl "Conversion failed: not an valid video file"
 		sleep 1
-		fn_printdots "Conversion failed: moving original."
 		mkdir -p "${outputdir}/fail" > /dev/null 2>&1
 		cd "${inputdir}"
 		rsync -avz --progress --stats "${video}" "${outputdir}/fail"
 		if [ "${?}" == "0" ]; then
-			fn_printoknl "Conversion failed: moving original."
 			rm -f "${video}"
 			rm -f "${rootdir}/${lockfile}"
+			fn_printoknl "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
 			exit
 		else
-			fn_printfailnl "Conversion failed: moving original."
 			rm -f "${rootdir}/${lockfile}"
+			fn_printfailnl "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
 			exit 1
 		fi	
 
@@ -154,3 +152,4 @@ done
 if [ -f "${rootdir}/${lockfile}" ]; then
 	rm -f "${rootdir}/${lockfile}"
 fi
+exit
