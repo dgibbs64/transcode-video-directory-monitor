@@ -3,7 +3,7 @@
 # Description: Monitors a directory for video files to transcode using transcode-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
-# Version: 080116
+# Version: 160116
 
 if [ -f ".dev-debug" ]; then
 	exec 5>dev-debug.log
@@ -46,7 +46,7 @@ if [ -f "${lockfile}" ]; then
 	exit
 fi
 
-date +%s > "${lockfile}"
+date +%s > "${rootdir}/${lockfile}"
 
 # trap ctrl-c and call ctrl_c()
 trap ctrl_c INT
