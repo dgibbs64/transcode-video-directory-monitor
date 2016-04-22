@@ -1,5 +1,5 @@
 #!/bin/bash
-# transcode-video monitor
+# transcode-video-monitor
 # Description: Monitors a directory for video files to transcode using convert-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
@@ -16,10 +16,16 @@ scriptname=$(basename $(readlink -f "${BASH_SOURCE[0]}"))
 # Current dir
 rootdir="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
 
+dir="/home/dgibbs/nas-Downloads/transcode-video"
 inputdir="/SOME/DIR"
 outputdir="/SOME/DIR"
+scriptlog="${dir}/${scriptname}.log"
 
 # Messages
+
+fn_scriptlog(){
+	echo -e "$(date '+%b %d %H:%M:%S') ${servicename}: ${1}" >> "${scriptlog}"
+}
 
 # [ FAIL ]
 fn_printfailnl(){
@@ -50,25 +56,29 @@ fn_fail_transfer(){
 		rm -f "${video}"
 		rm -f "${rootdir}/${lockfile}"
 		fn_printoknl "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
+		fn_scriptlog "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
 		exit
 	else
 		rm -f "${rootdir}/${lockfile}"
 		fn_printfailnl "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
+		fn_scriptlog "Conversion failed: $(date '+%b %d %H:%M:%S') moving original."
 		exit 1
 	fi	
 }
 
 fn_original_transfer(){
 	cd "${inputdir}" || exit
-	rsync -avz --progress --stats "${video}" "${outputdir}/original/"
+	rsync -avz --progress --stats --log-file="${scriptlog}" "${video}" "${outputdir}/original/"
 	if [ "${?}" == "0" ]; then
 		rm -f "${video}"
 		rm -f "${rootdir}/${lockfile}"
 		fn_printoknl "Conversion complete: $(date '+%b %d %H:%M:%S') moving original to original dir."
+		fn_scriptlog "Conversion complete: moving original to original dir."
 		exit
 	else
 		rm -f "${rootdir}/${lockfile}"
 		fn_printfailnl "Conversion complete: $(date '+%b %d %H:%M:%S') moving original to original dir."
+		fn_scriptlog "Conversion complete: moving original to original dir."
 		exit 1
 	fi		
 }
@@ -77,11 +87,13 @@ fn_display_info(){
 	# display info
 	videomime=$(file -b --mime-type "${video}")
 	videosize=$(du -h "${video}" | awk '{print $1}')
+	{
 	echo "================================="
 	echo "File name: ${video}"
 	echo "File mime type: ${videomime}"
 	echo "File size: ${videosize}"
 	echo "================================="
+	}|tee -a "${scriptlog}"
 	sleep 1		
 }
 
@@ -91,14 +103,17 @@ fn_check_filesize(){
 	current=$(find "${video}" -exec stat -c "%Y" \{\} \; \
 			| sort -n | tail -1)
 	fn_printdots "Checking file size changes: ${current}"
+	fn_scriptlog "Checking file size changes: ${current}"
 	while [ "${last}" != "${current}" ]; do
 		last=$current
 		current=$(find "${video}" -exec stat -c "%Y" \{\} \; \
 			| sort -n | tail -1)
 		fn_printdots "Checking file size changes: ${current}"
+		fn_scriptlog "Checking file size changes: ${current}"
 		sleep 5
 	done
 	fn_printoknl "Checking file size changes: Complete!"
+	fn_scriptlog "Checking file size changes: Complete!"
 	sleep 1
 }
 
@@ -115,16 +130,27 @@ trap finish EXIT
 
 function finish {
 	echo "Removed ${lockfile}"
+	fn_scriptlog "Removed ${lockfile}"
 	rm -f "${rootdir}/${lockfile}"
+	fn_scriptlog "Removed $(basename "${video%.*}").mp4.active"
+	rm -f "$(basename "${video%.*}").mp4.active"
+	fn_scriptlog "================================="
 }
 
 cd "${inputdir}" || exit
+
+# Remove any empty files from previous failed attempts
+find "${outputdir}" -size 0 -delete
+
+# Remove any empty dirs from inputdir
+find "${inputdir}" -type d -empty -exec rmdir {} \;
 
 # Look in input for files
 find "${inputdir}" -type f | while read -r video; do
 	# remove dir's from full path leaving just the nane 
 	find "${video}" -type f -printf '%f\n'
 	fn_printinfonl "Found $(basename "${video}") in ${inputdir}"
+	fn_scriptlog "Found $(basename "${video}") in ${inputdir}"
 	sleep 1
 
 	fn_check_filesize
@@ -134,25 +160,30 @@ find "${inputdir}" -type f | while read -r video; do
 	if [ "${videomime}" == "video/x-matroska" ]||[ "${videomime}" == "video/mp4" ]||[ "${videomime}" == "video/x-msvideo" ]; then
 		mkdir -p "${outputdir}/output" > /dev/null 2>&1
 		cd "${outputdir}/output" || exit
+
 		if [ -f "$(basename "${video%.*}").mp4" ]; then
 			fn_printinfonl "$(basename "${video%.*}").mp4 already exists. Removing file to start again."
+			fn_scriptlog "$(basename "${video%.*}").mp4 already exists. Removing file to start again."
 			rm -f "$(basename "${video%.*}").mp4"
 		fi	
-		echo "$(basename "${video%.*}").mp4"
+		touch "$(basename "${video%.*}").mp4.active"
 		fn_printoknl "Starting Conversion"
+		fn_scriptlog "Starting Conversion"
 		sleep 1
-		#/usr/local/bin/convert-video "${video}"
-		transcode-video --mp4 --add-audio language=eng "${video}" >> /home/user/nas-Downloads/transcode-video/video-transcode-monitor.log
+		/usr/local/bin/transcode-video --mp4 --add-audio language=eng "${video}" >> "${scriptlog}"
 		exitcode=${?}
 		if [ "${exitcode}" != "0" ]; then
 			fn_printfailnl "Unable to convert: convert-video.sh failed to convert video"
+			fn_scriptlog "Unable to convert: convert-video.sh failed to convert video"
 			fn_fail_transfer
 		else
 			fn_printoknl "Conversion complete."
+			fn_scriptlog "Conversion complete."
 			fn_original_transfer
 		fi	
 	else
-		fn_printfailnl "Conversion failed: not an mkv file"
+		fn_printfailnl "Conversion failed: not a video file"
+		fn_scriptlog "Conversion failed: not a video file"
 		fn_fail_transfer
 	fi
 done
