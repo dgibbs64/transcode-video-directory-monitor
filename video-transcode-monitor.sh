@@ -3,7 +3,7 @@
 # Description: Monitors a directory for video files to transcode using convert-video script
 # Author: Daniel Gibbs
 # E-Mail: me@danielgibbs.co.uk
-# Version: 250116
+# Version: 010516
 
 if [ -f ".dev-debug" ]; then
 	exec 5>dev-debug.log
@@ -16,9 +16,9 @@ scriptname=$(basename $(readlink -f "${BASH_SOURCE[0]}"))
 # Current dir
 rootdir="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
 
-dir="/home/dgibbs/nas-Downloads/transcode-video"
-inputdir="/SOME/DIR"
-outputdir="/SOME/DIR"
+dir="/home/video"
+inputdir="${dir}/input"
+outputdir="${dir}/output"
 scriptlog="${dir}/${scriptname}.log"
 
 # Messages
@@ -51,7 +51,14 @@ fn_printdots(){
 fn_fail_transfer(){
 	mkdir -p "${outputdir}/fail" > /dev/null 2>&1
 	cd "${inputdir}" || exit
-	rsync -avz --progress --stats "${video}" "${outputdir}/fail"
+	#rsync -avz --progress --stats "${video}" "${outputdir}/fail"
+	if [ -n "${nonvideo}" ]; then
+		mkdir -p "${outputdir}/nonvideo" > /dev/null 2>&1
+		mv "${video}" "${outputdir}/nonvideo"
+	else
+		mkdir -p "${outputdir}/fail" > /dev/null 2>&1
+		mv "${video}" "${outputdir}/fail"
+	fi
 	if [ "${?}" == "0" ]; then
 		rm -f "${video}"
 		rm -f "${rootdir}/${lockfile}"
@@ -68,7 +75,8 @@ fn_fail_transfer(){
 
 fn_original_transfer(){
 	cd "${inputdir}" || exit
-	rsync -avz --progress --stats --log-file="${scriptlog}" "${video}" "${outputdir}/original/"
+	#rsync -avz --progress --stats --log-file="${scriptlog}" "${video}" "${outputdir}/original/"
+	mv "${video}" "${outputdir}/original/"
 	if [ "${?}" == "0" ]; then
 		rm -f "${video}"
 		rm -f "${rootdir}/${lockfile}"
@@ -117,56 +125,24 @@ fn_check_filesize(){
 	sleep 1
 }
 
-# Checks for lock file
-lockfile="${scriptname}.lock"
-if [ -f "${rootdir}/${lockfile}" ]; then
-	exit
-fi
-
-date +%s > "${rootdir}/${lockfile}"
-
-# trap ctrl-c and call ctrl_c()
-trap finish EXIT
-
-function finish {
-	echo "Removed ${lockfile}"
-	fn_scriptlog "Removed ${lockfile}"
-	rm -f "${rootdir}/${lockfile}"
-	fn_scriptlog "Removed $(basename "${video%.*}").mp4.active"
-	rm -f "$(basename "${video%.*}").mp4.active"
-	fn_scriptlog "================================="
-}
-
-cd "${inputdir}" || exit
-
-# Remove any empty files from previous failed attempts
-find "${outputdir}" -size 0 -delete
-
-# Remove any empty dirs from inputdir
-find "${inputdir}" -type d -empty -exec rmdir {} \;
-
-# Look in input for files
-find "${inputdir}" -type f | while read -r video; do
-	# remove dir's from full path leaving just the nane 
-	find "${video}" -type f -printf '%f\n'
-	fn_printinfonl "Found $(basename "${video}") in ${inputdir}"
-	fn_scriptlog "Found $(basename "${video}") in ${inputdir}"
-	sleep 1
-
+fn_video_transcode(){
 	fn_check_filesize
 	fn_display_info
 
 
 	if [ "${videomime}" == "video/x-matroska" ]||[ "${videomime}" == "video/mp4" ]||[ "${videomime}" == "video/x-msvideo" ]; then
 		mkdir -p "${outputdir}/output" > /dev/null 2>&1
+		mkdir -p "${inputdir}/priority" > /dev/null 2>&1
 		cd "${outputdir}/output" || exit
 
 		if [ -f "$(basename "${video%.*}").mp4" ]; then
 			fn_printinfonl "$(basename "${video%.*}").mp4 already exists. Removing file to start again."
 			fn_scriptlog "$(basename "${video%.*}").mp4 already exists. Removing file to start again."
 			rm -f "$(basename "${video%.*}").mp4"
-		fi	
-		touch "$(basename "${video%.*}").mp4.active"
+		fi
+		touch "${outputdir}/$(basename "${video%.*}").mp4.active"
+		touch "${outputdir}/output/$(basename "${video%.*}").mp4.active"
+		touch "${inputdir}/$(basename "${video}").active"
 		fn_printoknl "Starting Conversion"
 		fn_scriptlog "Starting Conversion"
 		sleep 1
@@ -184,6 +160,62 @@ find "${inputdir}" -type f | while read -r video; do
 	else
 		fn_printfailnl "Conversion failed: not a video file"
 		fn_scriptlog "Conversion failed: not a video file"
+		nonvideo=1
 		fn_fail_transfer
+	fi	
+}
+
+# Checks for lock file
+lockfile="${scriptname}.lock"
+if [ -f "${rootdir}/${lockfile}" ]; then
+	exit
+fi
+
+date +%s > "${rootdir}/${lockfile}"
+
+# trap ctrl-c and call ctrl_c()
+trap finish EXIT
+
+function finish {
+	echo "Removed ${lockfile}"
+	fn_scriptlog "Removed ${lockfile}"
+	rm -f "${rootdir}/${lockfile}"
+	fn_scriptlog "Removed $(basename "${video%.*}").mp4.active"
+	rm -f "${outputdir}/$(basename "${video%.*}").mp4.active"
+	rm -f "${outputdir}/output/$(basename "${video%.*}").mp4.active"
+	rm -f "${inputdir}/$(basename "${video}").active"
+	fn_scriptlog "================================="
+}
+
+cd "${inputdir}" || exit
+
+# Remove any empty files from previous failed attempts
+find "${outputdir}" -size 0 ! -path "./priority/*" -delete
+
+# Remove any empty dirs from inputdir
+find "${inputdir}" -type d -empty -exec rmdir {} \;
+
+# Look in input for files
+
+find "${inputdir}/priority" -type f | while read -r video; do
+	if [ -n "${video}" ]; then
+		echo "no priority video found!" >> "${scriptlog}"
+		break
 	fi
+	# remove dir's from full path leaving just the nane 
+	find "${video}" -type f -printf '%f\n'
+	fn_printinfonl "Found $(basename "${video}") in ${inputdir}/priority"
+	fn_scriptlog "Found $(basename "${video}") in ${inputdir}/priority"
+	sleep 1
+	fn_video_transcode
+done
+
+
+find "${inputdir}" -type f | while read -r video; do
+	# remove dir's from full path leaving just the nane 
+	find "${video}" -type f -printf '%f\n'
+	fn_printinfonl "Found $(basename "${video}") in ${inputdir}"
+	fn_scriptlog "Found $(basename "${video}") in ${inputdir}"
+	sleep 1
+	fn_video_transcode
 done
